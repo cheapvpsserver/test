@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Basic Video to GIF Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .input-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .file-input {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .button:hover {
+            background-color: #45a049;
+        }
+        .button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .video-container, .gif-container {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 200px;
+        }
+        video, img {
+            max-width: 100%;
+            height: auto;
+            max-height: 400px;
+        }
+        .progress {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Basic Video to GIF Converter</h1>
+    <div class="container">
+        <div class="input-section">
+            <h2>1. Upload Video</h2>
+            <input type="file" id="videoFile" accept="video/*" class="file-input">
+            <div class="video-container">
+                <video id="videoPlayer" controls style="display: none;"></video>
+                <div id="videoPlaceholder" style="text-align: center; color: #888;">
+                    No video selected yet
+                </div>
+            </div>
+        </div>
+        
+        <div class="input-section">
+            <button id="convertBtn" class="button" disabled>Convert to GIF</button>
+        </div>
+        
+        <div class="progress" id="progress" style="display: none;">
+            <p id="progressText">Converting... Please wait.</p>
+        </div>
+        
+        <div class="input-section">
+            <h2>2. Result</h2>
+            <div class="gif-container">
+                <img id="gifResult" alt="Generated GIF">
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button id="downloadBtn" class="button" disabled>Download GIF</button>
+                <button id="resetBtn" class="button">Reset</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load ffmpeg.wasm using script tags -->
+    <script type="text/javascript" src="https://unpkg.com/@ffmpeg/ffmpeg@0.10.1/dist/ffmpeg.min.js"></script>
+    <script type="text/javascript" src="https://unpkg.com/@ffmpeg/core@0.10.0/dist/ffmpeg-core.js"></script>
+    
+    <script type="text/javascript">
+        // Initialize variables
+        let ffmpeg;
+        let isFFmpegReady = false;
+        
+        // DOM elements
+        const videoFile = document.getElementById('videoFile');
+        const videoPlayer = document.getElementById('videoPlayer');
+        const convertBtn = document.getElementById('convertBtn');
+        const progress = document.getElementById('progress');
+        const progressText = document.getElementById('progressText');
+        const gifResult = document.getElementById('gifResult');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const videoPlaceholder = document.getElementById('videoPlaceholder');
+        
+        // Initialize FFmpeg when DOM is loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            try {
+                console.log('Checking for FFmpeg module...');
+                console.log('typeof createFFmpeg:', typeof createFFmpeg);
+                console.log('typeof FFmpeg:', typeof FFmpeg);
+                
+                if (typeof createFFmpeg !== 'undefined') {
+                    // Standard global function pattern
+                    ffmpeg = createFFmpeg({
+                        log: true,
+                        corePath: 'https://unpkg.com/@ffmpeg/core@0.10.0/dist/ffmpeg-core.js',
+                        wasmPath: 'https://unpkg.com/@ffmpeg/core@0.10.0/dist/ffmpeg-core.wasm',
+                        workerPath: 'https://unpkg.com/@ffmpeg/core@0.10.0/dist/ffmpeg-core.worker.js'
+                    });
+                    isFFmpegReady = true;
+                    console.log('FFmpeg initialized using createFFmpeg()');
+                } else if (window.FFmpeg) {
+                    // Namespace pattern
+                    ffmpeg = window.FFmpeg.createFFmpeg({
+                        log: true,
+                        corePath: 'https://unpkg.com/@ffmpeg/core@0.10.0/dist/ffmpeg-core.js',
+                        wasmPath: 'https://unpkg.com/@ffmpeg/core@0.10.0/dist/ffmpeg-core.wasm',
+                        workerPath: 'https://unpkg.com/@ffmpeg/core@0.10.0/dist/ffmpeg-core.worker.js'
+                    });
+                    isFFmpegReady = true;
+                    console.log('FFmpeg initialized using window.FFmpeg.createFFmpeg()');
+                } else {
+                    console.error('FFmpeg module not found in global scope');
+                    progress.style.display = 'block';
+                    progressText.innerHTML = '<p>Error: FFmpeg module failed to load. Please check the browser console for details.</p>';
+                    return;
+                }
+                
+                // Enable convert button since FFmpeg is now ready
+                convertBtn.disabled = false;
+                console.log('FFmpeg initialized successfully');
+            } catch (error) {
+                console.error('Error initializing FFmpeg:', error);
+                progress.style.display = 'block';
+                progressText.innerHTML = `<p>Error initializing FFmpeg: ${error.message}</p>`;
+            }
+        });
+        
+        
+        // Handle video file selection
+        videoFile.addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const videoUrl = URL.createObjectURL(file);
+                videoPlayer.src = videoUrl;
+                videoPlayer.load();
+                videoPlayer.style.display = 'block';
+                videoPlaceholder.style.display = 'none';
+            }
+        });
+        
+        // Handle convert button click
+        convertBtn.addEventListener('click', async function() {
+            if (!isFFmpegReady || !ffmpeg) {
+                progress.style.display = 'block';
+                progressText.innerHTML = '<p>Error: FFmpeg is not available.</p>';
+                return;
+            }
+            
+            const file = videoFile.files[0];
+            if (!file) return;
+            
+            progress.style.display = 'block';
+            progressText.innerHTML = '<p>Loading FFmpeg core... Please wait.</p>';
+            convertBtn.disabled = true;
+            
+            try {
+                // Load FFmpeg core if not already loaded
+                if (!ffmpeg.isLoaded()) {
+                    await ffmpeg.load();
+                    console.log('FFmpeg core loaded successfully');
+                }
+                
+                progressText.innerHTML = '<p>Converting to GIF... Please wait.</p>';
+                
+                // Write video to FFmpeg memory
+                await ffmpeg.writeFile('input.mp4', await file.arrayBuffer());
+                
+                // Run conversion command
+                await ffmpeg.exec([
+                    '-i', 'input.mp4',
+                    '-vf', 'fps=10,scale=640:-1',
+                    '-loop', '0',
+                    '-y',
+                    'output.gif'
+                ]);
+                
+                // Read the output GIF
+                const data = await ffmpeg.readFile('output.gif');
+                const gifBlob = new Blob([data.buffer], { type: 'image/gif' });
+                const gifUrl = URL.createObjectURL(gifBlob);
+                
+                // Display the GIF
+                gifResult.src = gifUrl;
+                downloadBtn.disabled = false;
+                
+                // Set up download button
+                downloadBtn.onclick = function() {
+                    const a = document.createElement('a');
+                    a.href = gifUrl;
+                    a.download = 'converted.gif';
+                    a.click();
+                };
+                
+                progressText.innerHTML = '<p>Conversion completed successfully!</p>';
+            } catch (error) {
+                console.error('Conversion error:', error);
+                progressText.innerHTML = '<p>Error: ' + error.message + '</p>';
+            } finally {
+                convertBtn.disabled = false;
+            }
+        });
+        
+        // Reset button functionality
+        resetBtn.addEventListener('click', function() {
+            videoFile.value = '';
+            videoPlayer.src = '';
+            videoPlayer.style.display = 'none';
+            videoPlaceholder.style.display = 'block';
+            gifResult.src = '';
+            convertBtn.disabled = !isFFmpegReady;
+            downloadBtn.disabled = true;
+            progress.style.display = 'none';
+        });
+    </script>
+</body>
+</html>
